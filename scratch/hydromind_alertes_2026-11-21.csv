@@ -1,0 +1,63 @@
+﻿"HydroMind — Smart Water Management System · alertes · 2026-11-21 → 2026-11-21"
+
+Date-Time;State;Type;"Flow (L/min)"
+"2026-11-21 15:46:57";Alert;"Micro-leak (slow seepage)";3,00
+"2026-11-21 15:46:57";"Back to normal";"General anomaly";2,90
+"2026-11-21 15:46:58";Alert;"Micro-leak (slow seepage)";2,90
+"2026-11-21 15:46:58";"Back to normal";"General anomaly";3,20
+"2026-11-21 15:46:58";Alert;"Micro-leak (slow seepage)";3,20
+"2026-11-21 15:46:59";"Back to normal";"General anomaly";3,00
+"2026-11-21 15:47:00";Alert;"Micro-leak (slow seepage)";3,00
+"2026-11-21 15:47:00";"Back to normal";"General anomaly";3,00
+"2026-11-21 15:47:08";Closed;"Night leak (Minimum Night Flow)";0,85
+"2026-11-21 15:47:12";"Back to normal";"General anomaly";0,00
+"2026-11-21 15:47:14";Alert;"Flow above threshold";8,50
+"2026-11-21 15:47:17";Closed;"Pipe burst";8,80
+"2026-11-21 15:47:55";"Back to normal";"General anomaly";0,00
+"2026-11-21 15:48:42";Alert;"Micro-leak (slow seepage)";3,00
+"2026-11-21 15:51:41";Closed;"Pipe burst";9,00
+"2026-11-21 15:54:11";"Back to normal";"General anomaly";0,00
+"2026-11-21 16:28:56";Alert;"Micro-leak (slow seepage)";3,20
+"2026-11-21 16:29:20";Closed;"Pipe burst";9,50
+"2026-11-21 16:29:37";"Back to normal";"General anomaly";0,00
+"2026-11-21 16:32:09";Alert;"Micro-leak (slow seepage)";3,20
+"2026-11-21 16:32:14";Closed;"Pipe burst";9,50
+"2026-11-21 16:32:18";"Back to normal";"General anomaly";0,00
+"2026-11-21 17:15:38";Alert;"Micro-leak (slow seepage)";3,00
+"2026-11-21 17:15:39";"Back to normal";"General anomaly";2,90
+"2026-11-21 17:15:39";Alert;"Micro-leak (slow seepage)";2,90
+"2026-11-21 17:15:40";"Back to normal";"General anomaly";3,20
+"2026-11-21 17:15:40";Alert;"Micro-leak (slow seepage)";3,20
+"2026-11-21 17:15:41";"Back to normal";"General anomaly";3,00
+"2026-11-21 17:15:41";Alert;"Micro-leak (slow seepage)";3,00
+"2026-11-21 17:15:42";"Back to normal";"General anomaly";3,00
+"2026-11-21 17:15:50";Closed;"Night leak (Minimum Night Flow)";0,85
+"2026-11-21 17:15:52";"Back to normal";"General anomaly";0,00
+"2026-11-21 17:15:52";Alert;"Flow above threshold";8,50
+"2026-11-21 17:15:53";Closed;"Pipe burst";8,80
+"2026-11-21 17:22:26";"Back to normal";"General anomaly";0,00
+"2026-11-21 17:22:37";Alert;"Micro-leak (slow seepage)";3,00
+"2026-11-21 17:22:38";"Back to normal";"General anomaly";2,90
+"2026-11-21 17:22:38";Alert;"Micro-leak (slow seepage)";2,90
+"2026-11-21 17:22:39";"Back to normal";"General anomaly";3,20
+"2026-11-21 17:22:39";Alert;"Micro-leak (slow seepage)";3,20
+"2026-11-21 17:22:39";"Back to normal";"General anomaly";3,00
+"2026-11-21 17:22:40";Alert;"Micro-leak (slow seepage)";3,00
+"2026-11-21 17:22:40";"Back to normal";"General anomaly";3,00
+"2026-11-21 17:22:48";Closed;"Night leak (Minimum Night Flow)";0,85
+"2026-11-21 17:22:50";"Back to normal";"General anomaly";0,00
+"2026-11-21 17:22:51";Alert;"Flow above threshold";8,50
+"2026-11-21 17:22:52";Closed;"Pipe burst";8,80
+"2026-11-21 17:46:01";"Back to normal";"General anomaly";0,00
+"2026-11-21 17:46:12";Alert;"Micro-leak (slow seepage)";3,00
+"2026-11-21 17:46:13";"Back to normal";"General anomaly";2,90
+"2026-11-21 17:46:13";Alert;"Micro-leak (slow seepage)";2,90
+"2026-11-21 17:46:14";"Back to normal";"General anomaly";3,20
+"2026-11-21 17:46:14";Alert;"Micro-leak (slow seepage)";3,20
+"2026-11-21 17:46:15";"Back to normal";"General anomaly";3,00
+"2026-11-21 17:46:15";Alert;"Micro-leak (slow seepage)";3,00
+"2026-11-21 17:46:16";"Back to normal";"General anomaly";3,00
+"2026-11-21 17:46:24";Closed;"Night leak (Minimum Night Flow)";0,85
+"2026-11-21 17:46:26";"Back to normal";"General anomaly";0,00
+"2026-11-21 17:46:26";Alert;"Flow above threshold";8,50
+"2026-11-21 17:46:27";Closed;"Pipe burst";8,80

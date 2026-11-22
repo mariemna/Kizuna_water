@@ -1,0 +1,464 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script>
+    (function(){try{var s=localStorage.getItem('kizuna_theme');var t=s||((window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <meta name="theme-color" content="#071d35">
+  <title>Technician Portal — HydroMind</title>
+  <link rel="icon" type="image/png" href="assets/img/favicon.png">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="assets/themes.css?v=20261121">
+  <link rel="stylesheet" href="assets/style.css">
+  <link rel="stylesheet" href="assets/jury.css?v=20261121jp">
+  <style>
+    /* Styles spécifiques pour l'écran d'authentification */
+    .auth-page {
+      min-height: 100vh;
+      background: var(--auth-bg);
+      color: var(--hero-text);
+      display: flex;
+      flex-direction: column;
+    }
+    .auth-header {
+      padding: 24px 8%;
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      background: transparent;
+    }
+    .auth-header .brand {
+      color: var(--hero-text);
+    }
+    .auth-header .brand-mark {
+      background: var(--brand-navy2);
+      border: 1px solid var(--border-interactive);
+    }
+    .auth-header .brand b {
+      color: var(--brand-cyan);
+    }
+    .auth-container {
+      flex: 1;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      padding: 30px 16px 60px;
+    }
+    .auth-card {
+      width: 100%;
+      max-width: 480px;
+      background: var(--surface-card);
+      color: var(--text-primary);
+      border-radius: 12px;
+      box-shadow: var(--shadow-lg);
+      padding: 36px 32px;
+      border: 1px solid var(--auth-card-border);
+    }
+    .auth-tabs {
+      display: flex;
+      gap: 8px;
+      background: var(--surface-subtle);
+      border-radius: 8px;
+      padding: 4px;
+      margin-bottom: 24px;
+    }
+    .auth-tab-btn {
+      flex: 1;
+      padding: 10px 14px;
+      border: none;
+      background: transparent;
+      border-radius: 6px;
+      font-weight: 700;
+      font-size: 11px;
+      color: var(--text-secondary);
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+    .auth-tab-btn.active {
+      background: var(--surface-card);
+      color: var(--text-heading);
+      box-shadow: var(--shadow-sm);
+    }
+    .auth-title {
+      font: 800 22px Manrope;
+      color: var(--text-heading);
+      margin: 0 0 6px;
+    }
+    .auth-subtitle {
+      font-size: 11px;
+      color: var(--text-muted);
+      margin: 0 0 20px;
+      line-height: 1.5;
+    }
+    .form-group {
+      margin-bottom: 15px;
+    }
+    .form-group label {
+      display: block;
+      font-size: 10px;
+      font-weight: 700;
+      color: var(--text-secondary);
+      margin-bottom: 5px;
+      letter-spacing: 0.5px;
+      text-transform: uppercase;
+    }
+    .form-input {
+      width: 100%;
+      padding: 11px 13px;
+      border: 1px solid var(--input-border);
+      border-radius: 7px;
+      font-family: inherit;
+      font-size: 12px;
+      color: var(--input-text);
+      background: var(--input-bg);
+      transition: border-color 0.2s, box-shadow 0.2s, background 0.2s;
+    }
+    .form-input:focus {
+      outline: none;
+      border-color: var(--brand-blue);
+      box-shadow: 0 0 0 3px var(--input-focus-ring);
+      background: var(--input-bg-focus);
+    }
+    .form-row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
+    }
+    .quick-fill-btn {
+      width: 100%;
+      background: var(--brand-blue-subtle);
+      border: 1px dashed var(--brand-blue);
+      color: var(--brand-blue);
+      padding: 9px 12px;
+      border-radius: 7px;
+      font-size: 10px;
+      font-weight: 700;
+      cursor: pointer;
+      margin-bottom: 18px;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      transition: background 0.2s;
+    }
+    .quick-fill-btn:hover {
+      background: var(--surface-subtle-hover);
+    }
+    .checkbox-card {
+      border: 1px solid var(--border-default);
+      border-radius: 8px;
+      padding: 10px 12px;
+      margin-bottom: 10px;
+      background: var(--surface-card-subtle);
+      display: flex;
+      align-items: flex-start;
+      gap: 10px;
+      cursor: pointer;
+    }
+    .checkbox-card input[type="checkbox"] {
+      margin-top: 3px;
+      accent-color: var(--brand-blue);
+      width: 15px;
+      height: 15px;
+      cursor: pointer;
+    }
+    .checkbox-card-info b {
+      display: block;
+      font-size: 11px;
+      color: var(--text-heading);
+    }
+    .checkbox-card-info small {
+      display: block;
+      font-size: 9px;
+      color: var(--text-muted);
+      margin-top: 2px;
+      line-height: 1.4;
+    }
+    .auth-alert {
+      padding: 11px 14px;
+      border-radius: 7px;
+      font-size: 11px;
+      margin-bottom: 16px;
+      display: none;
+    }
+    .auth-alert.error {
+      background: var(--color-danger-bg);
+      color: var(--color-danger);
+      border: 1px solid var(--state-fermee-border);
+      display: block;
+    }
+    .auth-alert.success {
+      background: var(--color-success-bg);
+      color: var(--color-success);
+      border: 1px solid var(--state-normal-border);
+      display: block;
+    }
+    .auth-footer-nav {
+      margin-top: 20px;
+      text-align: center;
+      font-size: 11px;
+      color: var(--text-muted);
+    }
+    .auth-footer-nav a {
+      color: var(--brand-blue);
+      font-weight: 700;
+    }
+  </style>
+</head>
+<body class="auth-page">
+
+  <!-- En-tête -->
+  <header class="auth-header">
+    <a class="brand" href="index.html">
+      <span class="brand-logo">
+        <img src="assets/img/hydromind-icon.png" alt="HydroMind" class="logo-light">
+        <img src="assets/img/hydromind-icon-dark.png" alt="HydroMind" class="logo-dark">
+      </span>
+      <span>HydroMind<small>SMART WATER MANAGEMENT SYSTEM</small></span>
+    </a>
+    <a class="btn btn-white" href="dashboard.html" style="padding:10px 14px; font-size:11px;">
+      View Dashboard ↗
+    </a>
+  </header>
+
+  <!-- Contenu Principal -->
+  <div class="auth-container">
+    <div class="auth-card">
+
+      <!-- Logo HydroMind -->
+      <div class="auth-card-logo">
+        <img src="assets/img/hydromind-logo.png" alt="HydroMind" class="logo-light">
+        <img src="assets/img/hydromind-logo-dark.png" alt="HydroMind" class="logo-dark">
+      </div>
+
+      <!-- Onglets Connexion / Inscription -->
+      <div class="auth-tabs">
+        <button class="auth-tab-btn active" id="tabLoginBtn" type="button" onclick="switchTab('login')">
+          Sign In
+        </button>
+        <button class="auth-tab-btn" id="tabRegisterBtn" type="button" onclick="switchTab('register')">
+          New Technician
+        </button>
+      </div>
+
+      <!-- Message d'alerte / feedback -->
+      <div class="auth-alert" id="authAlert"></div>
+
+      <!-- ── FORMULAIRE 1 : CONNEXION (SIGN IN) ────────────────── -->
+      <form id="loginForm" onsubmit="handleLoginSubmit(event)">
+        <h1 class="auth-title">Technician Portal</h1>
+        <p class="auth-subtitle">Access the control center and receive intervention alerts.</p>
+
+        <!-- Quick Credentials -->
+        <button class="quick-fill-btn" type="button" onclick="fillTechnicianAccount()">
+          ⚡ Fill Technician Credentials
+        </button>
+
+        <div class="form-group">
+          <label for="loginEmail">Work Email</label>
+          <input class="form-input" type="email" id="loginEmail" required placeholder="ex: technicien@kizuna.tn">
+        </div>
+
+        <div class="form-group">
+          <label for="loginPassword">Password</label>
+          <input class="form-input" type="password" id="loginPassword" required placeholder="••••••••••••">
+        </div>
+
+        <button class="btn btn-primary" type="submit" id="loginSubmitBtn" style="width:100%; margin-top:10px; padding:13px;">
+          Sign in to Monitoring →
+        </button>
+      </form>
+
+      <!-- ── FORMULAIRE 2 : INSCRIPTION (SIGN UP) ──────────────── -->
+      <form id="registerForm" onsubmit="handleRegisterSubmit(event)" style="display:none;">
+        <h1 class="auth-title">Create Account</h1>
+        <p class="auth-subtitle">Register a maintenance technician and configure alert channels.</p>
+
+        <div class="form-group">
+          <label for="regNom">Technician Full Name</label>
+          <input class="form-input" type="text" id="regNom" required placeholder="ex: Yassine Trabelsi">
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="regEmail">Email</label>
+            <input class="form-input" type="email" id="regEmail" required placeholder="technicien@kizuna.tn">
+          </div>
+          <div class="form-group">
+            <label for="regTel">Phone (SMS)</label>
+            <input class="form-input" type="tel" id="regTel" required placeholder="+216 20 123 456">
+          </div>
+        </div>
+
+        <div class="form-row">
+          <div class="form-group">
+            <label for="regTelegram">Telegram Chat ID (optional)</label>
+            <input class="form-input" type="text" id="regTelegram" placeholder="ex: 123456789">
+          </div>
+          <div class="form-group">
+            <label for="regSecteur">Assigned Sector</label>
+            <input class="form-input" type="text" id="regSecteur" value="Sector A — ESPRIT Zone / El Ghazala">
+          </div>
+        </div>
+
+        <div class="form-group">
+          <label for="regPassword">Password (minimum 6 characters)</label>
+          <input class="form-input" type="password" id="regPassword" required minlength="6" placeholder="••••••••••••">
+        </div>
+
+        <div class="form-group" style="margin-top:15px;">
+          <label>Alert Notification Channels</label>
+
+          <!-- Checkbox SMS -->
+          <label class="checkbox-card">
+            <input type="checkbox" id="regNotifySms" checked>
+            <div class="checkbox-card-info">
+              <b>📱 Emergency SMS Alerts</b>
+              <small>Plain-text message with no link, including the full address and GPS coordinates.</small>
+            </div>
+          </label>
+
+          <!-- Checkbox Telegram -->
+          <label class="checkbox-card">
+            <input type="checkbox" id="regNotifyTelegram" checked>
+            <div class="checkbox-card-info">
+              <b>✈️ Telegram Bot Alerts</b>
+              <small>Instant notification with a direct Google Maps button for the impact location.</small>
+            </div>
+          </label>
+        </div>
+
+        <button class="btn btn-primary" type="submit" id="regSubmitBtn" style="width:100%; margin-top:10px; padding:13px;">
+          Create Technician Profile →
+        </button>
+      </form>
+
+      <div class="auth-footer-nav">
+        <a href="index.html">← Back to Public Website</a> &nbsp;·&nbsp;
+        <a href="dashboard.html">Open Dashboard Directly →</a>
+      </div>
+
+    </div>
+  </div>
+
+  <script src="assets/i18n.js?v=20261121jp"></script>
+  <script>
+    function switchTab(tab) {
+      const loginForm = document.getElementById('loginForm');
+      const regForm   = document.getElementById('registerForm');
+      const tabLogin  = document.getElementById('tabLoginBtn');
+      const tabReg    = document.getElementById('tabRegisterBtn');
+      const alertBox  = document.getElementById('authAlert');
+
+      alertBox.className = 'auth-alert';
+      alertBox.style.display = 'none';
+
+      if (tab === 'login') {
+        loginForm.style.display = 'block';
+        regForm.style.display   = 'none';
+        tabLogin.classList.add('active');
+        tabReg.classList.remove('active');
+      } else {
+        loginForm.style.display = 'none';
+        regForm.style.display   = 'block';
+        tabReg.classList.add('active');
+        tabLogin.classList.remove('active');
+      }
+    }
+
+    function fillTechnicianAccount() {
+      document.getElementById('loginEmail').value    = 'technicien@kizuna.tn';
+      document.getElementById('loginPassword').value = 'Kizuna2026!';
+      showAlert('Technician credentials ready: technicien@kizuna.tn / Kizuna2026!', 'success');
+    }
+    const fillDemoAccount = fillTechnicianAccount;
+
+    function showAlert(msg, type = 'error') {
+      const b = document.getElementById('authAlert');
+      b.textContent = msg;
+      b.className   = 'auth-alert ' + type;
+      b.style.display = 'block';
+    }
+
+    async function handleLoginSubmit(e) {
+      e.preventDefault();
+      const btn = document.getElementById('loginSubmitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Verifying…';
+
+      const email = document.getElementById('loginEmail').value.trim();
+      const password = document.getElementById('loginPassword').value;
+
+      try {
+        const res = await fetch('login.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ email, password })
+        });
+        const data = await res.json();
+
+        if (!data.success) throw new Error(data.error || 'Invalid credentials');
+
+        showAlert('Sign-in successful! Redirecting to the dashboard…', 'success');
+        setTimeout(() => {
+          window.location.href = 'dashboard.html';
+        }, 800);
+
+      } catch (err) {
+        showAlert(err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Sign in to Monitoring →';
+      }
+    }
+
+    async function handleRegisterSubmit(e) {
+      e.preventDefault();
+      const btn = document.getElementById('regSubmitBtn');
+      btn.disabled = true;
+      btn.textContent = 'Creating account…';
+
+      const payload = {
+        nom_complet:      document.getElementById('regNom').value.trim(),
+        email:            document.getElementById('regEmail').value.trim(),
+        telephone:        document.getElementById('regTel').value.trim(),
+        telegram_chat_id: document.getElementById('regTelegram').value.trim(),
+        secteur_assigne:  document.getElementById('regSecteur').value.trim(),
+        password:         document.getElementById('regPassword').value,
+        notify_sms:       document.getElementById('regNotifySms').checked ? 1 : 0,
+        notify_telegram:  document.getElementById('regNotifyTelegram').checked ? 1 : 0,
+      };
+
+      try {
+        const res = await fetch('register.php', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(payload)
+        });
+        const data = await res.json();
+
+        if (!data.success) throw new Error(data.error || 'Account creation failed');
+
+        showAlert('Account created successfully! Redirecting to the dashboard…', 'success');
+        setTimeout(() => {
+          window.location.href = 'dashboard.html';
+        }, 900);
+
+      } catch (err) {
+        showAlert(err.message, 'error');
+        btn.disabled = false;
+        btn.textContent = 'Create Technician Profile →';
+      }
+    }
+  </script>
+
+<div class="theme-switcher" role="radiogroup" aria-label="Theme switcher">
+  <button type="button" data-theme-value="light" aria-label="Light theme" title="Light theme">☀️ <span>Light</span></button>
+  <button type="button" data-theme-value="dark" aria-label="Dark theme" title="Dark theme">🌙 <span>Dark</span></button>
+  <button type="button" data-theme-value="comfort" aria-label="Eye comfort theme" title="Eye comfort theme">👁️ <span>Comfort</span></button>
+</div>
+<script src="assets/theme.js?v=20261121"></script>
+</body>
+</html>

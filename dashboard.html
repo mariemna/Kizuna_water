@@ -1,0 +1,717 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <script>
+    (function(){try{var s=localStorage.getItem('kizuna_theme');var t=s||((window.matchMedia&&window.matchMedia('(prefers-color-scheme: dark)').matches)?'dark':'light');document.documentElement.setAttribute('data-theme',t);}catch(e){}})();
+  </script>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Dashboard — HydroMind</title>
+  <link rel="icon" type="image/png" href="assets/img/favicon.png">
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=Manrope:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+  <link rel="stylesheet" href="assets/themes.css?v=20261122">
+  <link rel="stylesheet" href="assets/style.css?v=20261121">
+  <link rel="stylesheet" href="assets/jury.css?v=20261121jp">
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+  <style>
+    .alert-banner.state-normal { background: var(--state-normal-bg); border-color: var(--state-normal-border); }
+    .alert-banner.state-normal .alert-emblem { background: var(--state-normal-emblem-bg); color: var(--state-normal-accent); }
+    .alert-banner.state-normal b { color: var(--state-normal-text); }
+    .alert-banner.state-normal p { color: var(--state-normal-muted); }
+    .alert-banner.state-normal .alert-time { color: var(--state-normal-accent); }
+    .alert-banner.state-normal button { color: var(--state-normal-accent); }
+
+    .alert-banner.state-alerte { background: var(--state-alerte-bg); border-color: var(--state-alerte-border); }
+    .alert-banner.state-alerte .alert-emblem { background: var(--state-alerte-emblem-bg); color: var(--state-alerte-accent); }
+    .alert-banner.state-alerte b { color: var(--state-alerte-text); }
+    .alert-banner.state-alerte p { color: var(--state-alerte-muted); }
+    .alert-banner.state-alerte .alert-time { color: var(--state-alerte-accent); }
+    .alert-banner.state-alerte button { color: var(--state-alerte-accent); }
+
+    .alert-banner.state-fermee { background: var(--state-fermee-bg); border-color: var(--state-fermee-border); }
+    .alert-banner.state-fermee .alert-emblem { background: var(--state-fermee-emblem-bg); color: var(--state-fermee-accent); }
+    .alert-banner.state-fermee b { color: var(--state-fermee-text); }
+    .alert-banner.state-fermee p { color: var(--state-fermee-muted); }
+    .alert-banner.state-fermee .alert-time { color: var(--state-fermee-muted); }
+    .alert-banner.state-fermee button { color: var(--state-fermee-accent); }
+
+    .leak-card.state-alerte { border-color: var(--state-alerte-border); background: var(--surface-card); }
+    .leak-card.state-alerte .severity-dot { background: var(--state-alerte-dot); box-shadow: 0 0 0 4px var(--state-alerte-glow); }
+    .leak-card.state-alerte #mapStatus { color: var(--state-alerte-text); }
+
+    .severity.warning-severity { color: var(--state-alerte-accent); background: var(--state-alerte-emblem-bg); }
+    .severity.normal-severity { color: var(--state-normal-accent); background: var(--state-normal-emblem-bg); }
+    .alert-type.warning { background: var(--state-alerte-emblem-bg); color: var(--state-alerte-accent); }
+    .alert-type.normal { background: var(--state-normal-emblem-bg); color: var(--state-normal-accent); }
+  </style>
+</head>
+<body class="admin-body">
+
+<!-- ═══════════════════════════════════════════════════════
+     SIDEBAR
+═══════════════════════════════════════════════════════ -->
+<aside class="sidebar">
+  <a class="brand side-brand" href="index.html">
+    <span class="brand-logo">
+      <img src="assets/img/hydromind-icon.png" alt="HydroMind" class="logo-light">
+      <img src="assets/img/hydromind-icon-dark.png" alt="HydroMind" class="logo-dark">
+    </span>
+    <span>HydroMind<small>SMART WATER MANAGEMENT SYSTEM</small></span>
+  </a>
+
+  <div class="side-label">MAIN MENU</div>
+  <nav class="side-nav">
+    <a class="active" href="#overview"><span>▦</span> Overview</a>
+    <a href="#monitoring"><span>⌁</span> Live Monitoring <i class="nav-live"></i></a>
+    <a href="#alerts"><span>⚑</span> Alerts <b class="nav-count" id="navAlertCount">0</b></a>
+    <a href="#valve"><span>⏻</span> Valve Control</a>
+    <a href="#history"><span>◷</span> History</a>
+  </nav>
+
+  <div class="side-label side-label-bottom">SYSTEM</div>
+  <nav class="side-nav">
+    <a href="#settings"><span>⚙</span> Settings</a>
+    <a href="auth.html"><span>👤</span> My Account</a>
+    <a href="index.html"><span>↗</span> Public Website</a>
+  </nav>
+
+  <div class="sidebar-bottom">
+    <div class="system-status">
+      <i></i>
+      <span>
+        <b>System operational</b>
+        <small>Live telemetry</small>
+      </span>
+    </div>
+    <div class="profile" style="cursor:pointer;" onclick="document.getElementById('settings').scrollIntoView({behavior:'smooth'})" title="View account & alerts">
+      <div class="profile-avatar" id="sideUserAvatar">YT</div>
+      <span>
+        <b id="sideUserName">ESPRIT Technician</b>
+        <small id="sideUserRole">Network supervision</small>
+      </span>
+      <span class="profile-more">⚙</span>
+    </div>
+  </div>
+</aside>
+
+<!-- ═══════════════════════════════════════════════════════
+     CONTENU PRINCIPAL
+═══════════════════════════════════════════════════════ -->
+<main class="admin-main" id="overview">
+
+  <!-- En-tête -->
+  <header class="admin-topbar">
+    <div>
+      <div class="breadcrumb">HydroMind <span>/</span> Overview</div>
+      <h1 id="topGreeting">Hello, Technician <span>✦</span></h1>
+      <p>Here is your water network status today.</p>
+    </div>
+    <div class="top-actions">
+      <div class="top-date">
+        <span>◷</span>
+        <span id="todayDate">Today</span>
+      </div>
+      <button class="icon-button" title="Alerts"
+              onclick="document.getElementById('alerts').scrollIntoView({behavior:'smooth'})">
+        ♧<i></i>
+      </button>
+      <div class="top-avatar" id="topAvatar" style="cursor:pointer;" onclick="document.getElementById('settings').scrollIntoView({behavior:'smooth'})" title="My account & alerts">YT</div>
+    </div>
+  </header>
+
+  <!-- Bannière alerte -->
+  <section class="alert-banner hidden-alert" id="alertBanner">
+    <div class="alert-emblem">!</div>
+    <div>
+      <b id="bannerTitle">No anomaly detected</b>
+      <p id="bannerText">Flow is within the normal range.</p>
+    </div>
+    <span class="alert-time" id="bannerTime">JUST NOW</span>
+    <button onclick="document.getElementById('alerts').scrollIntoView({behavior:'smooth'})">
+      View Alert ↗
+    </button>
+  </section>
+
+  <!-- Blue Info Chip : R6 Trend Watch / Prediction -->
+  <div class="prediction-chip" id="predictionChip" style="display: none;">
+    <span class="prediction-chip-icon">🔮</span>
+    <span id="predictionChipText">Trend watch: flow rising +0.10 L/min per minute — threshold reachable in ~15 min</span>
+  </div>
+
+  <!-- Barre d'outils -->
+  <div class="dashboard-toolbar">
+    <div>
+      <span class="live-dot"></span> REAL-TIME DATA
+      <span class="toolbar-divider">·</span> Refreshing every 2 s
+    </div>
+    <button class="outline-btn" onclick="resetSimulation()">↻ Reset</button>
+  </div>
+
+  <!-- ── KPI Cards ───────────────────────────────────────── -->
+  <section class="stats-grid">
+
+    <article class="stat-card" id="flowCard">
+      <div class="stat-top">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span>Current Flow</span>
+          <span id="sensorStatusBadge" class="sensor-status-badge online">Sensor online</span>
+        </div>
+        <span class="stat-icon blue">⌁</span>
+      </div>
+      <div class="stat-value">
+        <strong id="flowValue">—</strong>
+        <small>L/min</small>
+        <span id="flowLastKnownTag" class="flow-last-known" style="display:none;">(last known)</span>
+      </div>
+      <div class="stat-foot">
+        <span class="stat-neutral" id="flowFoot">● Live measurement</span>
+        <span class="mini-spark">⌁⌁⌁</span>
+      </div>
+    </article>
+
+    <article class="stat-card">
+      <div class="stat-top">
+        <span>Today's Consumption</span>
+        <span class="stat-icon cyan">◷</span>
+      </div>
+      <div class="stat-value">
+        <strong id="consumptionValue">—</strong>
+        <small>Liters</small>
+      </div>
+      <div class="stat-foot">
+        <span class="stat-positive">↗ Cumulative data</span>
+        <span class="mini-spark">⌁⌁⌁</span>
+      </div>
+    </article>
+
+    <article class="stat-card">
+      <div class="stat-top">
+        <span>Alerts Detected</span>
+        <span class="stat-icon red">⚑</span>
+      </div>
+      <div class="stat-value">
+        <strong id="alertValue">00</strong>
+        <small>alert</small>
+      </div>
+      <div class="stat-foot">
+        <span class="stat-danger" id="alertFoot">● Monitoring required</span>
+        <span class="mini-spark red-spark">⌁⌁⌁</span>
+      </div>
+    </article>
+
+    <article class="stat-card">
+      <div class="stat-top">
+        <span>Valve Status</span>
+        <span class="stat-icon green">⏻</span>
+      </div>
+      <div class="stat-value">
+        <strong class="valve-word" id="valveValue">—</strong>
+      </div>
+      <div class="stat-foot">
+        <span class="stat-positive" id="valveFoot">● Normal operation</span>
+        <span class="stat-positive" id="waterSavedMetric" style="font-weight:700;" title="Estimated water saved through leak protection">💧 0 L</span>
+      </div>
+    </article>
+
+  </section>
+
+  <!-- ── Carte Leaflet ───────────────────────────────────── -->
+  <section class="map-panel panel" id="map">
+    <div class="panel-heading map-heading">
+      <div>
+        <div class="map-kicker">
+          <span class="live-dot"></span> NATIONAL NETWORK · TUNISIA
+        </div>
+        <h2>Locate the Leak</h2>
+        <p>Tunisian network · ESPRIT Sector A connected · GPS precision</p>
+      </div>
+      <div class="map-tools">
+        <span class="map-sync">● SYNCHRONIZED</span>
+        <button class="map-tool" type="button" onclick="centerLeak()">◎ Center Leak</button>
+      </div>
+    </div>
+
+    <div class="map-layout">
+      <!-- Carte Leaflet -->
+      <div class="network-map" aria-label="Interactive map of the Tunisian network">
+        <div id="tunisiaMap" class="map-canvas"></div>
+        <div class="map-legend">
+          <span><i class="legend-live"></i> Active sensor</span>
+          <span><i class="legend-leak"></i> Leak located</span>
+        </div>
+      </div>
+
+      <!-- Fiche de fuite latérale -->
+      <aside class="leak-card sensor-card" id="leakCard">
+        <div class="leak-card-top">
+          <span class="severity-dot"></span>
+          <span id="mapStatus">ACTIVE SENSOR</span>
+          <span class="leak-confidence" id="mapConfidence">LIVE</span>
+        </div>
+        <div class="leak-coordinate">
+          <small>IMPACT POINT</small>
+          <strong id="mapZone">Sector A — ESPRIT Zone</strong>
+          <span id="mapCoords">36.8990° N · 10.1895° E</span>
+        </div>
+        <div class="leak-facts">
+          <div>
+            <small>MEASURED FLOW</small>
+            <b id="mapLoss">— <em>L/min</em></b>
+          </div>
+          <div>
+            <small>STATUS</small>
+            <b id="mapSource">LIVE</b>
+          </div>
+        </div>
+        <div class="leak-actions">
+          <button class="btn btn-primary" type="button" onclick="focusLeak()">
+            View Exact Location <span>↗</span>
+          </button>
+          <button class="outline-btn" id="ackLeakBtn" type="button" onclick="acknowledgeLeak()">
+            Mark as Resolved
+          </button>
+        </div>
+        <p class="map-hint">Click a sensor to explore the network.</p>
+      </aside>
+    </div>
+  </section>
+
+  <!-- ── Graphique + Vanne ───────────────────────────────── -->
+  <section class="main-panels" id="monitoring">
+
+    <!-- Graphique débit temps réel -->
+    <article class="panel chart-panel">
+      <div class="panel-heading">
+        <div>
+          <h2>Flow Monitoring</h2>
+          <p>Water flow evolution in real time</p>
+        </div>
+        <div class="chart-legend">
+          <span><i></i> Delivered flow</span>
+          <span><i class="legend-demand"></i> Demand</span>
+          <span><i class="legend-threshold"></i> Alert threshold</span>
+        </div>
+      </div>
+      <div class="chart-meta">
+        <strong id="chartCurrent">— <small>L/min</small></strong>
+        <span class="chart-live"><i></i> LIVE</span>
+      </div>
+      <div class="chart-wrap">
+        <canvas id="flowChart"></canvas>
+      </div>
+      <div class="chart-axis-labels">
+        <span>60 seconds ago</span>
+        <span>Now</span>
+      </div>
+    </article>
+
+    <!-- Contrôle de vanne -->
+    <article class="panel valve-panel" id="valve">
+      <div class="panel-heading">
+        <div>
+          <h2>Valve Control</h2>
+          <p>Smart motorized actuator</p>
+        </div>
+        <span class="tiny-status"><i></i> CONNECTED</span>
+      </div>
+
+      <!-- Visuel animé -->
+      <div class="valve-visual" id="valveVisual">
+        <div class="valve-ring">
+          <div class="valve-core">⏻</div>
+        </div>
+        <span class="pipe pipe-left"></span>
+        <span class="pipe pipe-right"></span>
+        <span class="water-flow"></span>
+      </div>
+
+      <div class="valve-state">
+        <small>CURRENT STATUS</small>
+        <b id="valveState">—</b>
+        <span id="valveDescription">Waiting for data…</span>
+        <span id="waterSavedBadge" style="display:inline-block; margin-top:5px; font-size:10px; font-weight:700; color:var(--state-normal-badge-text); background:var(--state-normal-badge-bg); padding:3px 9px; border-radius:10px;">💧 0 L of water saved</span>
+      </div>
+
+      <!-- Boutons vanne -->
+      <div class="valve-actions">
+        <button class="btn btn-primary" id="closeValveBtn" onclick="setValve(false)">
+          Close Valve
+        </button>
+        <button class="outline-btn" id="openValveBtn" onclick="setValve(true)">
+          Open Valve
+        </button>
+      </div>
+
+      <!-- Bouton Mode Nuit (démo jury) -->
+      <button class="outline-btn" id="nightModeBtn" onclick="toggleNightMode()"
+              style="width:100%;margin-top:8px;text-align:center">
+        ☀️ Night Mode: OFF
+      </button>
+    </article>
+
+    <!-- Flow Control -->
+    <article class="panel flow-control-panel" id="flowControl">
+      <div class="panel-heading">
+        <div>
+          <h2>Flow Control</h2>
+          <p>Proportional valve regulation · Demand management</p>
+        </div>
+        <span class="tiny-status" id="flowRegimeBadge"><i></i> <span id="flowRegimeBadgeText">NORMAL</span></span>
+      </div>
+
+      <!-- Live Opening Gauge & Flow summary -->
+      <div class="flow-gauge-wrap">
+        <div class="flow-gauge-top">
+          <small>VALVE OPENING</small>
+          <strong id="gaugeOpeningText">Valve opening: 100%</strong>
+        </div>
+        <div class="flow-gauge-bar">
+          <div class="flow-gauge-fill" id="gaugeOpeningFill" style="width: 100%;"></div>
+        </div>
+        <div class="flow-demand-delivered" id="gaugeDemandDeliveredText">
+          Demand 0.0 → Delivered 0.0 L/min
+        </div>
+      </div>
+
+      <!-- Regime selector -->
+      <div class="flow-control-group">
+        <label class="flow-group-label">OPERATING REGIME</label>
+        <div class="regime-btn-grid">
+          <button type="button" class="regime-btn active" id="regimeNormalBtn" onclick="selectRegime('NORMAL')">Normal</button>
+          <button type="button" class="regime-btn" id="regimeEcoBtn" onclick="selectRegime('ECO_NUIT')">Night eco</button>
+          <button type="button" class="regime-btn" id="regimeEventBtn" onclick="selectRegime('EVENEMENT')">Event mode</button>
+        </div>
+        <div class="event-duration-box" id="eventDurationBox" style="display:none;">
+          <div class="event-duration-inner">
+            <label for="eventHoursInput">Duration (hours):</label>
+            <input type="number" id="eventHoursInput" min="1" max="72" value="24">
+            <button type="button" class="btn btn-primary" onclick="applyEventDuration()">Apply</button>
+          </div>
+          <small id="eventExpiryText" class="event-expiry-note"></small>
+        </div>
+      </div>
+
+      <!-- Manual opening slider -->
+      <div class="flow-control-group">
+        <div class="flow-slider-header">
+          <label class="flow-group-label" style="margin:0;">MANUAL OPENING</label>
+          <span class="flow-slider-val" id="manualSliderVal">100%</span>
+        </div>
+        <div class="flow-slider-row">
+          <input type="range" id="manualOpeningSlider" min="10" max="100" step="5" value="100" oninput="updateSliderDisplay(this.value)">
+        </div>
+        <div class="flow-slider-actions">
+          <button type="button" class="btn btn-primary" id="applyManualBtn" onclick="applyManualOpening()">Apply</button>
+          <button type="button" class="outline-btn" id="resetAutoBtn" onclick="resetToAutoOpening()">Auto</button>
+        </div>
+      </div>
+    </article>
+
+  </section>
+
+  <!-- ── Alertes + Journal d'activité ────────────────────── -->
+  <section class="bottom-panels">
+
+    <article class="panel" id="alerts">
+      <div class="panel-heading">
+        <div>
+          <h2>Recent Alerts</h2>
+          <p>Events detected by the system</p>
+        </div>
+        <a class="panel-link" href="#history">View All ↗</a>
+      </div>
+      <div id="alertsList">
+        <div class="alert-item muted-alert">
+          <span class="alert-type info">i</span>
+          <div>
+            <b>Monitoring active</b>
+            <p>Sensors are successfully transmitting measurements</p>
+            <small>Today · Continuous</small>
+          </div>
+          <span class="severity info-severity">INFO</span>
+        </div>
+      </div>
+    </article>
+
+    <article class="panel activity-panel">
+      <div class="panel-heading">
+        <div>
+          <h2>Activity Log</h2>
+          <p>Latest actions from the system</p>
+        </div>
+        <span class="tiny-status"><i></i> LIVE</span>
+      </div>
+      <ul class="activity-log" id="activityLog">
+        <li><span>●</span><div><b>System started</b><small>Live telemetry · now</small></div></li>
+      </ul>
+    </article>
+
+  </section>
+
+  <!-- ── Historique des mesures ──────────────────────────── -->
+  <section class="panel history-panel" id="history">
+    <div class="panel-heading">
+      <div>
+        <h2>Measurement History</h2>
+        <p>Latest readings recorded in real time</p>
+      </div>
+      <div style="display:flex; align-items:center; gap:10px; flex-wrap:wrap;">
+        <span id="historyPausedNotice" class="history-paused-notice" style="display:none;">
+          <span id="historyPausedCountLabel">Paused — 0 new readings</span>
+          <button type="button" id="historyResumeBtn" class="history-resume-btn" onclick="resumeHistory()">Resume</button>
+        </span>
+        <button class="outline-btn history-toggle-btn" id="historyToggleBtn" type="button" onclick="toggleHistoryPause()">
+          <span class="live-dot" id="historyLiveDot"></span>
+          <span id="historyToggleLabel">Live</span>
+        </button>
+        <button class="outline-btn" id="openExportModalBtn" type="button" onclick="openExportModal()" style="display:inline-flex; align-items:center; gap:6px; font-weight:600; cursor:pointer;">
+          <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+        <span class="panel-link" id="measureCount">0 measurements</span>
+      </div>
+    </div>
+    <div class="history-table-wrap">
+      <table class="history-table">
+        <thead>
+          <tr>
+            <th>Time</th>
+            <th>Flow</th>
+            <th>Status</th>
+            <th>Analysis</th>
+          </tr>
+        </thead>
+        <tbody id="historyBody">
+          <tr><td colspan="4">Waiting for measurements…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </section>
+
+  <!-- ── Paramètres du Compte & Alertes Technicien ──────── -->
+  <section class="panel settings-panel" id="settings" style="margin-top:14px;">
+    <div class="panel-heading">
+      <div>
+        <h2>⚙️ Account &amp; Technician Alert Settings</h2>
+        <p>Manage your intervention details and emergency notification preferences</p>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span class="tiny-status" id="authBadge"><i></i> CONNECTED</span>
+        <a class="outline-btn" href="auth.html" id="switchAccountBtn" style="text-decoration:none; display:inline-block; font-size:9px; padding:7px 10px;">Switch Account</a>
+        <button class="outline-btn" type="button" onclick="handleLogout()" id="logoutBtn" style="color:var(--color-danger); border-color:var(--state-fermee-border); font-size:9px; padding:7px 10px;">Sign Out</button>
+      </div>
+    </div>
+
+    <!-- Feedback messages -->
+    <div id="settingsFeedback" style="display:none; padding:10px 14px; border-radius:7px; font-size:11px; margin-top:12px;"></div>
+
+    <div class="settings-grid" style="display:grid; grid-template-columns:1fr 1fr; gap:16px; margin-top:14px;">
+
+      <!-- Colonne 1 : Profil Technicien -->
+      <div class="kz-settings-card">
+        <div style="display:flex; align-items:center; gap:12px; margin-bottom:14px;">
+          <div class="profile-avatar" id="settingsAvatar" style="width:40px; height:40px; font-size:13px;">YT</div>
+          <div>
+            <b id="settingsWorkerName" style="font-size:12px; color:var(--text-heading); display:block;">Yassine Trabelsi (Technicien)</b>
+            <span id="settingsWorkerEmail" style="font-size:10px; color:var(--text-muted);">technicien@kizuna.tn</span>
+          </div>
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label class="kz-field-label">Full Name</label>
+          <input class="form-input kz-field-input" type="text" id="prefNom" value="Yassine Trabelsi">
+        </div>
+
+        <div style="margin-bottom:12px;">
+          <label class="kz-field-label">Assigned Intervention Sector</label>
+          <input class="form-input kz-field-input" type="text" id="prefSecteur" value="Sector A — ESPRIT Zone / El Ghazala">
+        </div>
+      </div>
+
+      <!-- Colonne 2 : Canaux SMS vs Telegram -->
+      <div class="kz-settings-card">
+        <h3 class="kz-settings-title">Emergency Notification Preferences</h3>
+
+        <!-- Option SMS -->
+        <div class="kz-channel-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:700; font-size:11px; color:var(--text-heading); margin:0;">
+              <input type="checkbox" id="prefNotifySms" checked style="accent-color:var(--brand-blue); width:15px; height:15px;">
+              <span>📱 Receive SMS Alerts</span>
+            </label>
+            <span style="font-size:8px; font-weight:700; padding:2px 6px; border-radius:4px; background:var(--brand-blue-subtle); color:var(--brand-blue);">PLAIN TEXT · NO LINK</span>
+          </div>
+          <p style="font-size:9px; color:var(--text-muted); margin:0 0 8px; line-height:1.4;">
+            Plain-text message without a URL, optimized for standard mobile phones. Includes the full address and GPS coordinates.
+          </p>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label for="prefTel" style="font-size:9px; font-weight:700; color:var(--text-secondary); white-space:nowrap;">Mobile Number:</label>
+            <input class="form-input" type="tel" id="prefTel" style="flex:1; padding:7px 10px; border:1px solid var(--input-border); border-radius:6px; font-size:11px; background:var(--input-bg); color:var(--input-text);" placeholder="+216 20 123 456" value="+21620123456">
+          </div>
+        </div>
+
+        <!-- Option Telegram -->
+        <div class="kz-channel-card">
+          <div style="display:flex; justify-content:space-between; align-items:center; margin-bottom:6px;">
+            <label style="display:flex; align-items:center; gap:8px; cursor:pointer; font-weight:700; font-size:11px; color:var(--text-heading); margin:0;">
+              <input type="checkbox" id="prefNotifyTelegram" checked style="accent-color:var(--brand-blue); width:15px; height:15px;">
+              <span>✈️ Receive Telegram Alerts</span>
+            </label>
+            <span style="font-size:8px; font-weight:700; padding:2px 6px; border-radius:4px; background:var(--state-normal-badge-bg); color:var(--state-normal-badge-text);">GPS MAPS LINK</span>
+          </div>
+          <p style="font-size:9px; color:var(--text-muted); margin:0 0 8px; line-height:1.4;">
+            Instant rich notification with a direct Google Maps link to the exact leak location.
+          </p>
+          <div style="display:flex; align-items:center; gap:8px;">
+            <label for="prefTelegram" style="font-size:9px; font-weight:700; color:var(--text-secondary); white-space:nowrap;">Chat ID:</label>
+            <input class="form-input" type="text" id="prefTelegram" style="flex:1; padding:7px 10px; border:1px solid var(--input-border); border-radius:6px; font-size:11px; background:var(--input-bg); color:var(--input-text);" placeholder="ex: 123456789" value="123456789">
+          </div>
+        </div>
+
+        <!-- Boutons d'action -->
+        <div style="display:flex; gap:8px;">
+          <button class="btn btn-primary" type="button" onclick="savePreferences()" id="savePrefBtn" style="flex:1; padding:10px; font-size:10px;">
+            💾 Save Preferences
+          </button>
+          <button class="outline-btn" type="button" onclick="testNotificationAlert()" id="testNotifBtn" style="padding:10px 12px; font-size:10px; color:var(--brand-blue); border-color:var(--brand-blue);" title="Trigger an immediate test alert">
+            ⚡ Test Alert
+          </button>
+        </div>
+
+      </div>
+
+    </div>
+  </section>
+
+  <footer class="admin-footer">
+    <span>© 2026 HydroMind · Smart Water Management System</span>
+    <span>HydroMind · Real-time Monitoring</span>
+  </footer>
+
+</main>
+
+<script src="assets/i18n.js?v=20261121jp"></script>
+<script src="assets/app.js?v=20261121jp"></script>
+<script src="assets/nav.js?v=20261121"></script>
+<script src="assets/export.js?v=20261121"></script>
+
+<!-- ── Modal Export ──────────────────────────────────────── -->
+<div id="exportModal" class="kz-modal-backdrop" style="display:none;" role="dialog" aria-modal="true" aria-labelledby="exportModalTitle">
+  <div class="kz-modal-box">
+    <div class="kz-modal-header">
+      <div style="display:flex; align-items:center; gap:10px;">
+        <div class="kz-modal-icon">
+          <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+        </div>
+        <div>
+          <h3 id="exportModalTitle" class="kz-modal-title">Export Data &amp; Reports</h3>
+          <p class="kz-modal-subtitle">Download records or generate official intervention reports</p>
+        </div>
+      </div>
+      <button type="button" class="kz-modal-close" onclick="closeExportModal()" aria-label="Close modal">&times;</button>
+    </div>
+
+    <form id="exportForm" onsubmit="handleExportSubmit(event)">
+      <!-- Period Selection -->
+      <div class="kz-export-section">
+        <label class="kz-export-label">Period</label>
+        <div class="kz-period-options">
+          <label class="kz-radio-pill">
+            <input type="radio" name="exportPeriod" value="today" checked onchange="handlePeriodChange()">
+            <span>Today</span>
+          </label>
+          <label class="kz-radio-pill">
+            <input type="radio" name="exportPeriod" value="24h" onchange="handlePeriodChange()">
+            <span>Last 24 h</span>
+          </label>
+          <label class="kz-radio-pill">
+            <input type="radio" name="exportPeriod" value="7d" onchange="handlePeriodChange()">
+            <span>Last 7 days</span>
+          </label>
+          <label class="kz-radio-pill">
+            <input type="radio" name="exportPeriod" value="custom" onchange="handlePeriodChange()">
+            <span>Custom</span>
+          </label>
+        </div>
+
+        <!-- Custom Date Range -->
+        <div id="customDateRow" class="kz-custom-dates" style="display:none;">
+          <div class="kz-date-field">
+            <label for="exportDateDu">From</label>
+            <input type="date" id="exportDateDu">
+          </div>
+          <div class="kz-date-field">
+            <label for="exportDateAu">To</label>
+            <input type="date" id="exportDateAu">
+          </div>
+        </div>
+      </div>
+
+      <!-- Format Selection -->
+      <div class="kz-export-section" style="margin-top:16px;">
+        <label class="kz-export-label">Format</label>
+        <div class="kz-format-options">
+          <label class="kz-format-card">
+            <input type="radio" name="exportFormat" value="mesures" checked>
+            <div class="kz-format-content">
+              <div class="kz-format-title">
+                <span class="kz-badge-csv">CSV</span> CSV – Measurements
+              </div>
+              <div class="kz-format-desc">Raw flow readings (L/min), avoided flow, and valve state</div>
+            </div>
+          </label>
+
+          <label class="kz-format-card">
+            <input type="radio" name="exportFormat" value="alertes">
+            <div class="kz-format-content">
+              <div class="kz-format-title">
+                <span class="kz-badge-csv">CSV</span> CSV – Alerts
+              </div>
+              <div class="kz-format-desc">Alert state transitions, leak types, and flow during incident</div>
+            </div>
+          </label>
+
+          <label class="kz-format-card">
+            <input type="radio" name="exportFormat" value="notifications">
+            <div class="kz-format-content">
+              <div class="kz-format-title">
+                <span class="kz-badge-csv">CSV</span> CSV – Notifications
+              </div>
+              <div class="kz-format-desc">Emergency dispatch logs (SMS / Telegram) with masked numbers</div>
+            </div>
+          </label>
+
+          <label class="kz-format-card kz-format-pdf">
+            <input type="radio" name="exportFormat" value="pdf">
+            <div class="kz-format-content">
+              <div class="kz-format-title">
+                <span class="kz-badge-pdf">PDF</span> PDF report (print)
+              </div>
+              <div class="kz-format-desc">Printable A4 intervention report with KPIs, chart, rules &amp; signature</div>
+            </div>
+          </label>
+        </div>
+      </div>
+
+      <!-- Actions -->
+      <div class="kz-modal-footer">
+        <button type="button" class="outline-btn" onclick="closeExportModal()">Cancel</button>
+        <button type="submit" class="btn btn-primary" id="btnExecuteExport" style="display:inline-flex; align-items:center; gap:6px;">
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+          Export
+        </button>
+      </div>
+    </form>
+  </div>
+</div>
+
+<div class="theme-switcher" role="radiogroup" aria-label="Theme switcher">
+  <button type="button" data-theme-value="light" aria-label="Light theme" title="Light theme">☀️ <span>Light</span></button>
+  <button type="button" data-theme-value="dark" aria-label="Dark theme" title="Dark theme">🌙 <span>Dark</span></button>
+  <button type="button" data-theme-value="comfort" aria-label="Eye comfort theme" title="Eye comfort theme">👁️ <span>Comfort</span></button>
+</div>
+<script src="assets/theme.js?v=20261122"></script>
+</body>
+</html>

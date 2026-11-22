@@ -1,0 +1,1196 @@
+// ============================================================
+//  HydroMind — assets/app.js
+//  Logique temps réel : fetch PHP/MySQL toutes les 2 s
+//  Design intégral de la coéquipière (style.css intact)
+//  Compte technicien & préférences de notifications (SMS vs Telegram)
+// ============================================================
+
+'use strict';
+
+// ── Configuration ─────────────────────────────────────────────
+const CONFIG = {
+  API_LIRE:     'lire_donnees.php',
+  API_CONTROLE: 'controler_vanne.php',
+  API_AUTH:     'auth.php',
+  API_PREFS:    'update_preferences.php',
+  API_NOTIF:    'notifier.php',
+  API_LOGOUT:   'logout.php',
+  REFRESH_MS:   2000,
+};
+
+const ALERT_TYPE_LABELS = {
+  RUPTURE:     'Pipe burst',
+  MNF:         'Night leak (Minimum Night Flow)',
+  MICRO_FUITE: 'Micro-leak (slow seepage)',
+  PIC:         'Sudden flow spike',
+  DEPASSEMENT: 'Flow above threshold',
+};
+
+function formatAlertType(type) {
+  if (!type) return '';
+  return ALERT_TYPE_LABELS[type] || type;
+}
+
+function formatTimeSince(dateStr) {
+  if (!dateStr) return '';
+  const date = new Date(dateStr.replace(' ', 'T'));
+  if (isNaN(date.getTime())) return dateStr;
+  const diffSec = Math.max(0, Math.floor((Date.now() - date.getTime()) / 1000));
+  if (diffSec < 60) return `${diffSec}s ago`;
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin}m ago`;
+  const diffH = Math.floor(diffMin / 60);
+  return `${diffH}h ${diffMin % 60}m ago`;
+}
+
+// Capteurs : Sector A = LIVE (données réelles), B/C/D = simulés
+const MAP_CONFIG = {
+  CENTER:       [34.8, 9.7],   // Vue nationale Tunisie
+  ZOOM:         6,
+  ZOOM_ALERT:   13,            // Zoom sur la zone de fuite
+  ALERT_RADIUS: 400,           // Cercle d'alerte en mètres
+  TILES: 'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+  ATTR:  '&copy; <a href="https://www.openstreetmap.org/copyright">OpenStreetMap</a>',
+  SENSORS: [
+    { id: 'center', label: 'Secteur A — Zone ESPRIT / El Ghazala', lat: 36.8990, lng: 10.1895, live: true },
+    { id: 'north',  label: 'Secteur B — Grand Tunis · Sidi Thabet', lat: 36.8065, lng: 10.1815, live: false, debit: 2.3 },
+    { id: 'capbon', label: 'Secteur C — Cap Bon · Nabeul',           lat: 36.4513, lng: 10.7357, live: false, debit: 3.1 },
+    { id: 'south',  label: 'Secteur D — Sahel · Sousse',             lat: 35.8256, lng: 10.6369, live: false, debit: 1.8 },
+  ],
+};
+
+// ── État interne ──────────────────────────────────────────────
+const appState = { chart: null, timer: null, lastValveStatus: null };
+
+const mapState = {
+  map:              null,
+  markers:          {},
+  circleA:          null,
+  lastEtatAlerte:   null,     // état précédent — détecte les transitions NORMAL / ALERTE / FERMEE
+  selectedSensorId: 'center', // Secteur A par défaut
+  isAcknowledged:   false,
+  lastLiveData:     null,
+};
+
+const authState = {
+  worker: null,
+};
+
+// ── Helpers DOM ───────────────────────────────────────────────
+const $   = id => document.getElementById(id);
+const set = (id, v)  => { const e = $(id); if (e) e.textContent = v; };
+const htm = (id, v)  => { const e = $(id); if (e) e.innerHTML   = v; };
+
+function getInitials(name) {
+  if (!name) return 'TK';
+  const parts = name.trim().split(/\s+/);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+  }
+  return name.slice(0, 2).toUpperCase();
+}
+
+// ── Date ──────────────────────────────────────────────────────
+function updateDate() {
+  const el = $('todayDate');
+  if (el) el.textContent = new Intl.DateTimeFormat('en-US', {
+    weekday: 'short', day: '2-digit', month: 'short', year: 'numeric',
+  }).format(new Date());
+}
+
+// ════════════════════════════════════════════════════════════
+//  MISE À JOUR UI — données réelles
+// ════════════════════════════════════════════════════════════
+
+/** Applique l'état de la vanne à tous les éléments visuels. */
+function applyValveUI(open, etatAlerte, typeAlerte, lastDebitEvite, eauEconomisee, alerteDepuis) {
+  const jp = window.KizunaI18n?.getLanguage() === 'jp';
+  set('valveValue', jp ? (open ? '開' : '閉') : (open ? 'Open' : 'Closed'));
+
+  const foot = $('valveFoot');
+  if (foot) {
+    foot.textContent = jp ? (open ? '● 正常稼働' : '● 流量停止') : (open ? '● Normal operation' : '● Flow interrupted');
+    foot.className   = open ? 'stat-positive' : 'stat-danger';
+  }
+
+  const typeLabel = formatAlertType(typeAlerte);
+
+  if (etatAlerte === 'FERMEE') {
+    const timeSince = formatTimeSince(alerteDepuis);
+    set('valveState', jp ? '漏水確認 — バルブ自動閉鎖' : 'Leak confirmed – valve closed automatically');
+    set('valveDescription', typeLabel
+      ? (timeSince ? `${typeLabel} · Closed ${timeSince}.` : `${typeLabel} · Valve closed automatically.`)
+      : 'Water circulation is currently interrupted.');
+  } else if (etatAlerte === 'ALERTE') {
+    set('valveState', jp ? '異常検知 — バルブ開・監視中' : 'Anomaly detected – valve open, monitoring');
+    set('valveDescription', typeLabel
+      ? `${typeLabel} · Active monitoring in progress.`
+      : 'Water is flowing under surveillance.');
+  } else {
+    set('valveState', jp ? (open ? 'バルブ開' : 'バルブ閉') : (open ? 'Valve open' : 'Valve closed'));
+    set('valveDescription', open
+      ? (jp ? '給水ネットワークで水が正常に流れています。' : "Water is flowing normally through the network.")
+      : (jp ? '現在、水の循環が停止しています。' : "Water circulation is currently interrupted."));
+  }
+
+  // Water saved badge
+  const badgeEl = $('waterSavedBadge');
+  if (badgeEl) {
+    const savedNum = Number(eauEconomisee || 0).toFixed(1);
+    const eviteNum = Number(lastDebitEvite || 0).toFixed(1);
+    if (!open && lastDebitEvite > 0) {
+      badgeEl.textContent = `💧 ${savedNum} L of water saved (${eviteNum} L/min being saved)`;
+    } else {
+      badgeEl.textContent = `💧 ${savedNum} L of water saved`;
+    }
+  }
+
+  $('valveVisual')?.classList.toggle('closed', !open);
+  set('deviceValveStatus', open ? 'Online' : 'Closed');
+
+  if ($('closeValveBtn')) $('closeValveBtn').disabled = !open;
+  if ($('openValveBtn'))  $('openValveBtn').disabled  =  open;
+}
+
+/** Met à jour la bannière d'alerte, les KPI et le panneau des alertes récentes. */
+function applyAlertUI(etatAlerte, typeAlerte, debit, alerteDepuis, alertesLog, stats) {
+  const banner = $('alertBanner');
+  const typeLabel = formatAlertType(typeAlerte);
+
+  if (banner) {
+    banner.classList.remove('hidden-alert', 'state-normal', 'state-alerte', 'state-fermee');
+
+    if (etatAlerte === 'FERMEE') {
+      banner.classList.add('state-fermee');
+      set('bannerTitle', 'Leak confirmed – valve closed automatically');
+      const timeSince = formatTimeSince(alerteDepuis);
+      set('bannerText', typeLabel
+        ? (timeSince ? `${typeLabel} · Active since ${timeSince}.` : `${typeLabel} · Automatic emergency shutoff.`)
+        : 'Water network closed automatically.');
+      set('bannerTime', 'CRITICAL');
+    } else if (etatAlerte === 'ALERTE') {
+      banner.classList.add('state-alerte');
+      set('bannerTitle', 'Anomaly detected – valve open, monitoring');
+      set('bannerText', typeLabel
+        ? `${typeLabel} · Current flow: ${debit} L/min.`
+        : `Unusual flow detected: ${debit} L/min.`);
+      set('bannerTime', 'MONITORING');
+    } else {
+      banner.classList.add('hidden-alert', 'state-normal');
+      set('bannerTitle', 'No anomaly detected');
+      set('bannerText', 'Flow is within the normal range.');
+      set('bannerTime', 'JUST NOW');
+    }
+  }
+
+  // Nav alert count & KPI card
+  const isProblem = etatAlerte === 'FERMEE' || etatAlerte === 'ALERTE';
+  set('navAlertCount', isProblem ? '1' : '0');
+
+  const alertCount = (stats && stats.alertes_aujourdhui !== undefined)
+    ? String(stats.alertes_aujourdhui).padStart(2, '0')
+    : (isProblem ? '01' : '00');
+  set('alertValue', alertCount);
+
+  const alertFoot = $('alertFoot');
+  if (alertFoot) {
+    if (etatAlerte === 'FERMEE') {
+      alertFoot.textContent = '● Emergency shutoff active';
+      alertFoot.className = 'stat-danger';
+    } else if (etatAlerte === 'ALERTE') {
+      alertFoot.textContent = '● Anomaly under surveillance';
+      alertFoot.className = 'stat-warning';
+    } else {
+      alertFoot.textContent = '● Monitoring active · Normal';
+      alertFoot.className = 'stat-positive';
+    }
+  }
+
+  // Panneau Recent Alerts (alimenté depuis alertes_log)
+  updateRecentAlertsPanel(alertesLog, etatAlerte, typeAlerte, debit);
+}
+
+function updateRecentAlertsPanel(alertesLog, currentEtat, currentType, currentDebit) {
+  const container = $('alertsList');
+  if (!container) return;
+
+  if (Array.isArray(alertesLog) && alertesLog.length > 0) {
+    const itemsHtml = alertesLog.slice(0, 5).map(item => {
+      const typeText = formatAlertType(item.type) || item.type || 'Alert';
+      const debitVal = parseFloat(item.debit || 0).toFixed(1);
+      const timeStr  = item.created_at || 'Today';
+
+      if (item.etat === 'FERMEE') {
+        return `<div class="alert-item">
+          <span class="alert-type">!</span>
+          <div>
+            <b>${typeText} — Valve Closed</b>
+            <p>Flow: ${debitVal} L/min — Automatic safety closure</p>
+            <small>${timeStr}</small>
+          </div>
+          <span class="severity">CRITICAL</span>
+        </div>`;
+      } else if (item.etat === 'ALERTE') {
+        return `<div class="alert-item">
+          <span class="alert-type warning">!</span>
+          <div>
+            <b>${typeText} — Anomaly</b>
+            <p>Flow: ${debitVal} L/min — Under monitoring</p>
+            <small>${timeStr}</small>
+          </div>
+          <span class="severity warning-severity">WARNING</span>
+        </div>`;
+      } else {
+        return `<div class="alert-item muted-alert">
+          <span class="alert-type normal">✓</span>
+          <div>
+            <b>Valve Reopened — Back to normal</b>
+            <p>Flow: ${debitVal} L/min — Operational range restored</p>
+            <small>${timeStr}</small>
+          </div>
+          <span class="severity normal-severity">RESOLVED</span>
+        </div>`;
+      }
+    }).join('');
+
+    container.innerHTML = itemsHtml;
+  } else {
+    if (currentEtat === 'FERMEE') {
+      container.innerHTML = `<div class="alert-item">
+        <span class="alert-type">!</span>
+        <div>
+          <b>${formatAlertType(currentType) || 'Leak confirmed'} — Valve Closed</b>
+          <p>Flow: ${currentDebit} L/min — Automatic safety closure</p>
+          <small>Today · Active</small>
+        </div>
+        <span class="severity">CRITICAL</span>
+      </div>`;
+    } else if (currentEtat === 'ALERTE') {
+      container.innerHTML = `<div class="alert-item">
+        <span class="alert-type warning">!</span>
+        <div>
+          <b>${formatAlertType(currentType) || 'Anomaly detected'} — Under monitoring</b>
+          <p>Flow: ${currentDebit} L/min — Surveillance in progress</p>
+          <small>Today · Active</small>
+        </div>
+        <span class="severity warning-severity">WARNING</span>
+      </div>`;
+    } else {
+      container.innerHTML = `<div class="alert-item muted-alert">
+        <span class="alert-type info">i</span>
+        <div>
+          <b>Monitoring active</b>
+          <p>Sensors are successfully transmitting measurements</p>
+          <small>Today · Continuous</small>
+        </div>
+        <span class="severity info-severity">INFO</span>
+      </div>`;
+    }
+  }
+}
+
+/** Synchronise le bouton Mode Nuit avec l'état BDD. */
+function applyNightUI(isNight) {
+  const btn = $('nightModeBtn');
+  if (!btn) return;
+  const jp = window.KizunaI18n?.getLanguage() === 'jp';
+  btn.textContent = jp
+    ? (isNight ? '🌙 ナイトモード：オン' : '☀️ ナイトモード：オフ')
+    : (isNight ? '🌙 Night Mode: ON' : '☀️ Night Mode: OFF');
+  btn.classList.toggle('night-active', isNight);
+}
+
+/** Met à jour les 4 cartes KPI depuis les données réelles. */
+function applyStats(data) {
+  const mesures  = data.mesures || [];
+  const derniere = mesures.length ? mesures[mesures.length - 1] : null;
+  if (!derniere) return;
+
+  const debit         = parseFloat(derniere.debit_eau);
+  const debitEvite    = parseFloat(derniere.debit_evite || 0);
+  const isOpen        = data.statut_vanne === 'OUVERTE';
+  const etatAlerte    = data.etat_alerte || 'NORMAL';
+  const typeAlerte    = data.type_alerte || null;
+  const alerteDepuis  = data.alerte_depuis || null;
+  const eauEconomisee = (data.stats && data.stats.eau_economisee !== undefined) ? Number(data.stats.eau_economisee) : 0;
+  const consoJour     = (data.stats && data.stats.consommation_jour !== undefined) ? Number(data.stats.consommation_jour) : 0;
+
+  // Débit actuel
+  set('flowValue', debit.toFixed(1));
+  htm('chartCurrent', `${debit.toFixed(1)} <small>L/min</small>`);
+
+  // Consommation réelle aujourd'hui (sans floor 200 L)
+  set('consumptionValue', consoJour.toFixed(1));
+
+  // Eau économisée KPI
+  if (!isOpen && debitEvite > 0) {
+    set('waterSavedMetric', `💧 ${eauEconomisee.toFixed(1)} L (${debitEvite.toFixed(1)} L/min saved)`);
+  } else {
+    set('waterSavedMetric', `💧 ${eauEconomisee.toFixed(1)} L`);
+  }
+
+  applyValveUI(isOpen, etatAlerte, typeAlerte, debitEvite, eauEconomisee, alerteDepuis);
+  applyAlertUI(etatAlerte, typeAlerte, debit.toFixed(1), alerteDepuis, data.alertes_log || [], data.stats || {});
+  applyNightUI(data.mode_nuit);
+
+  // Détection d'un changement d'état de vanne externe (ex: fermeture automatique)
+  if (appState.lastValveStatus && appState.lastValveStatus !== data.statut_vanne) {
+    if (data.statut_vanne === 'FERMEE') {
+      addActivity('Valve closed automatically', 'Anti-leak protection activated', 'warning');
+    } else if (data.statut_vanne === 'OUVERTE') {
+      addActivity('Valve reopened', 'Normal network operation restored', 'success');
+    }
+  }
+  appState.lastValveStatus = data.statut_vanne;
+}
+
+// ════════════════════════════════════════════════════════════
+//  GRAPHIQUE CHART.JS (couleurs du design de la coéquipière)
+// ════════════════════════════════════════════════════════════
+
+function initChart() {
+  const canvas = $('flowChart');
+  if (!canvas || !window.Chart) return;
+
+  appState.chart = new Chart(canvas, {
+    type: 'line',
+    data: {
+      labels: [],
+      datasets: [
+        {
+          label:           'Measured flow',
+          data:            [],
+          borderColor:     '#159bd0',
+          backgroundColor: 'rgba(21,155,208,.10)',
+          fill:            true,
+          tension:         0.42,
+          borderWidth:     2.5,
+          pointRadius:     0,
+          pointHoverRadius:5,
+        },
+        {
+          label:       "Alert threshold",
+          data:        [],
+          borderColor: '#f2a34a',
+          borderDash:  [6, 5],
+          borderWidth: 1.5,
+          pointRadius: 0,
+          fill:        false,
+        }
+      ]
+    },
+    options: {
+      responsive:          true,
+      maintainAspectRatio: false,
+      interaction:         { intersect: false, mode: 'index' },
+      plugins: {
+        legend: { display: false },
+        tooltip: {
+          backgroundColor: '#102b45',
+          padding:         11,
+          displayColors:   false,
+          callbacks: {
+            label: c => `${c.dataset.label}: ${c.parsed.y.toFixed(1)} L/min`
+          }
+        }
+      },
+      scales: {
+        x: {
+          grid:  { display: false },
+          ticks: { color: '#9aa9b7', font: { family: 'DM Sans', size: 10 }, maxTicksLimit: 7 }
+        },
+        y: {
+          min: 0,
+          max: 25,
+          grid:  { color: '#edf1f5' },
+          ticks: { color: '#9aa9b7', font: { family: 'DM Sans', size: 10 }, stepSize: 5 }
+        }
+      }
+    }
+  });
+}
+
+function applyChart(mesures, seuilActif) {
+  if (!appState.chart || !mesures) return;
+
+  const seuil  = parseFloat(seuilActif) || 5.0;
+  const labels = [];
+  const values = [];
+
+  mesures.forEach(m => {
+    const ts = new Date(m.timestamp.replace(' ', 'T'));
+    labels.push(ts.toLocaleTimeString('en-US', {
+      hour: '2-digit', minute: '2-digit', second: '2-digit',
+    }));
+    values.push(parseFloat(m.debit_eau));
+  });
+
+  appState.chart.data.labels             = labels;
+  appState.chart.data.datasets[0].data   = values;
+  appState.chart.data.datasets[1].data   = values.map(() => seuil);
+  appState.chart.update('none');
+}
+
+// ════════════════════════════════════════════════════════════
+//  CARTE LEAFLET + divIcon pulsant
+// ════════════════════════════════════════════════════════════
+
+/** Injecte les keyframes CSS pour le marqueur pulsant. */
+function injectMapCSS() {
+  if ($('kz-style')) return;
+  const s = document.createElement('style');
+  s.id = 'kz-style';
+  s.textContent = `
+    .kz-wrap{background:transparent!important;border:none!important;box-shadow:none!important}
+    .kz-pin{position:relative;width:30px;height:30px;display:flex;align-items:center;justify-content:center}
+    .kz-core{width:14px;height:14px;border-radius:50%;border:2.5px solid #fff;
+             box-shadow:0 2px 8px rgba(0,0,0,.3);position:absolute;z-index:2}
+    .kz-ring{position:absolute;width:14px;height:14px;border-radius:50%;border:2px solid;opacity:0}
+    .kz-r1{animation:kzP 1.8s ease-out infinite}
+    .kz-r2{animation:kzP 1.8s ease-out .9s infinite}
+    @keyframes kzP{0%{transform:scale(1);opacity:.75}100%{transform:scale(5);opacity:0}}
+    .leaflet-popup-content-wrapper{border-radius:8px!important;
+      box-shadow:0 8px 25px rgba(0,0,0,.12)!important}
+    .leaflet-popup-content{margin:12px 14px!important;line-height:1.65!important;
+      font-family:'DM Sans',sans-serif!important;font-size:11px!important;color:#122b42}
+    #nightModeBtn.night-active{border-color:#087eba;color:#087eba;background:#e9f5fb}
+  `;
+  document.head.appendChild(s);
+}
+
+/** Crée un L.divIcon avec anneaux pulsants optionnels. */
+function mkIcon(color, pulsing) {
+  const r = pulsing
+    ? `<div class="kz-ring kz-r1" style="border-color:${color}"></div>
+       <div class="kz-ring kz-r2" style="border-color:${color}"></div>`
+    : '';
+  return L.divIcon({
+    className:   'kz-wrap',
+    html:        `<div class="kz-pin">${r}<div class="kz-core" style="background:${color}"></div></div>`,
+    iconSize:    [30, 30],
+    iconAnchor:  [15, 15],
+    popupAnchor: [0, -17],
+  });
+}
+
+/** Génère le HTML du popup selon le type de capteur et l'état d'alerte. */
+function mkPopup(sensor, etatAlerte, typeAlerte, debit, vanne) {
+  const F = 'font-family:"DM Sans",sans-serif;min-width:168px';
+  const typeLabel = formatAlertType(typeAlerte);
+
+  if (sensor.live && etatAlerte === 'FERMEE') {
+    return `<div style="${F}">
+      <strong style="color:#e34d5b">🚨 LEAK CONFIRMED</strong><br>
+      <span style="color:#e34d5b;font-size:10px">${sensor.label}${typeLabel ? ' · ' + typeLabel : ''}</span>
+      <hr style="border:none;border-top:1px solid #f3d9d8;margin:7px 0">
+      Flow&nbsp;: <strong style="color:#e34d5b">${debit}&nbsp;L/min</strong><br>
+      Valve&nbsp;: <strong>${vanne}</strong></div>`;
+  }
+  if (sensor.live && etatAlerte === 'ALERTE') {
+    return `<div style="${F}">
+      <strong style="color:#c97a16">⚠️ ANOMALY DETECTED</strong><br>
+      <span style="color:#c97a16;font-size:10px">${sensor.label}${typeLabel ? ' · ' + typeLabel : ''}</span>
+      <hr style="border:none;border-top:1px solid #faeacc;margin:7px 0">
+      Flow&nbsp;: <strong style="color:#c97a16">${debit}&nbsp;L/min</strong><br>
+      Valve&nbsp;: <strong>${vanne}</strong></div>`;
+  }
+  if (sensor.live) {
+    return `<div style="${F}">
+      <strong style="color:#087eba">📡 ${sensor.label}</strong><br>
+      <span style="color:#20a879;font-size:10px">✅ Normal · LIVE</span>
+      <hr style="border:none;border-top:1px solid #e8eef3;margin:7px 0">
+      Flow&nbsp;: <strong>${debit}&nbsp;L/min</strong><br>
+      Valve&nbsp;: <span style="color:#20a879">${vanne}</span></div>`;
+  }
+  return `<div style="${F}">
+    <strong style="color:#087eba">📡 ${sensor.label}</strong><br>
+    <span style="color:#20a879;font-size:10px">✅ Simulated — Normal</span>
+    <hr style="border:none;border-top:1px solid #e8eef3;margin:7px 0">
+    Flow&nbsp;: <strong>${sensor.debit.toFixed(1)}&nbsp;L/min</strong><br>
+    Valve&nbsp;: <span style="color:#20a879">OPEN</span></div>`;
+}
+
+/**
+ * Met à jour la fiche latérale de droite pour le capteur spécifié.
+ * @param {string} sensorId - 'center' | 'north' | 'capbon' | 'south'
+ * @param {Object|null} liveData - Dernières données reçues de lire_donnees.php
+ */
+function renderSensorDetailCard(sensorId, liveData) {
+  const sensor = MAP_CONFIG.SENSORS.find(s => s.id === sensorId) || MAP_CONFIG.SENSORS[0];
+  const card   = $('leakCard') || document.querySelector('.leak-card');
+  const ackBtn = $('ackLeakBtn');
+
+  let etatAlerte = 'NORMAL';
+  let typeAlerte = null;
+  let liveDebit  = '—';
+  let liveVanne  = 'OPEN';
+
+  if (liveData && liveData.mesures && liveData.mesures.length) {
+    const last = liveData.mesures.at(-1);
+    etatAlerte = liveData.etat_alerte || 'NORMAL';
+    typeAlerte = liveData.type_alerte || null;
+    liveDebit  = parseFloat(last.debit_eau).toFixed(1);
+    liveVanne  = liveData.statut_vanne === 'FERMEE' ? 'CLOSED' : 'OPEN';
+  }
+
+  set('mapZone',   sensor.label);
+  set('mapCoords', `${sensor.lat.toFixed(4)}° N · ${sensor.lng.toFixed(4)}° E`);
+
+  if (sensor.live) {
+    // Secteur A — LIVE
+    set('mapConfidence', 'LIVE');
+    set('mapSource',     'MySQL LIVE');
+    htm('mapLoss',       `${liveDebit} <em>L/min</em>`);
+
+    card?.classList.remove('acknowledged', 'sensor-card', 'state-alerte');
+
+    const typeLabel = formatAlertType(typeAlerte);
+
+    if (etatAlerte === 'FERMEE') {
+      if (mapState.isAcknowledged) {
+        set('mapStatus', 'PROCESSING');
+        card?.classList.add('acknowledged');
+      } else {
+        set('mapStatus', `🔴 LEAK CONFIRMED${typeLabel ? ' · ' + typeLabel.toUpperCase() : ''}`);
+      }
+      if (ackBtn) ackBtn.style.display = '';
+    } else if (etatAlerte === 'ALERTE') {
+      card?.classList.add('state-alerte');
+      set('mapStatus', `🟠 ANOMALY DETECTED${typeLabel ? ' · ' + typeLabel.toUpperCase() : ''}`);
+      if (ackBtn) ackBtn.style.display = '';
+    } else {
+      card?.classList.add('sensor-card');
+      set('mapStatus', '🟢 NORMAL OPERATION');
+      if (ackBtn) ackBtn.style.display = 'none';
+    }
+  } else {
+    // Secteur B, C, D — Capteur simulé
+    set('mapConfidence', 'SIMULATED');
+    set('mapSource',     'Simulated sensor');
+    htm('mapLoss',       `${sensor.debit.toFixed(1)} <em>L/min</em>`);
+    set('mapStatus',     '🟢 NORMAL OPERATION');
+    card?.classList.remove('acknowledged', 'state-alerte');
+    card?.classList.add('sensor-card');
+    if (ackBtn) ackBtn.style.display = 'none';
+  }
+}
+
+/** Sélectionne un capteur, met à jour la fiche et active le marqueur. */
+function selectSensor(sensorId, shouldFly = false) {
+  mapState.selectedSensorId = sensorId;
+  renderSensorDetailCard(sensorId, mapState.lastLiveData);
+
+  const sensor = MAP_CONFIG.SENSORS.find(s => s.id === sensorId);
+  const marker = mapState.markers[sensorId];
+
+  if (sensor && shouldFly) {
+    mapState.map?.flyTo([sensor.lat, sensor.lng], MAP_CONFIG.ZOOM_ALERT, { duration: 1.2 });
+  }
+  if (marker && shouldFly) {
+    marker.openPopup();
+  }
+}
+
+/** Initialise la carte Leaflet avec OpenStreetMap + 4 capteurs. */
+function initMap() {
+  const el = $('tunisiaMap');
+  if (!el || !window.L) return;
+
+  mapState.map = L.map(el, { zoomControl: false, scrollWheelZoom: false })
+    .setView(MAP_CONFIG.CENTER, MAP_CONFIG.ZOOM);
+
+  L.control.zoom({ position: 'bottomright' }).addTo(mapState.map);
+
+  L.tileLayer(MAP_CONFIG.TILES, { attribution: MAP_CONFIG.ATTR, maxZoom: 18 })
+    .addTo(mapState.map);
+
+  // Ligne réseau traversant la Tunisie
+  L.polyline(
+    MAP_CONFIG.SENSORS.map(s => [s.lat, s.lng]),
+    { color: '#087eba', weight: 4, opacity: 0.85, dashArray: '8 8' }
+  ).addTo(mapState.map);
+
+  // Marqueurs (Sector A en bleu, B/C/D en vert)
+  MAP_CONFIG.SENSORS.forEach(s => {
+    const color  = s.live ? '#087eba' : '#19aa86';
+    const marker = L.marker([s.lat, s.lng], {
+      icon:         mkIcon(color, false),
+      zIndexOffset: s.live ? 1000 : 0,
+    }).addTo(mapState.map);
+
+    // Popup reste ouvert jusqu'à clic utilisateur sur un autre marqueur ou croix de fermeture
+    marker.bindPopup(mkPopup(s, 'NORMAL', null, s.debit ?? '—', 'OPEN'), {
+      autoClose:    true,
+      closeOnClick: false,
+    });
+
+    marker.on('click', () => {
+      selectSensor(s.id, false);
+    });
+
+    mapState.markers[s.id] = marker;
+  });
+
+  renderSensorDetailCard('center', null);
+  setTimeout(() => mapState.map.invalidateSize(), 150);
+}
+
+/** Applique sur la carte l'état reçu depuis l'API. */
+function applyMap(data) {
+  if (!mapState.map) return;
+
+  const last = data.mesures && data.mesures.length ? data.mesures.at(-1) : null;
+  if (!last)  return;
+
+  const etatAlerte = data.etat_alerte || 'NORMAL';
+  const typeAlerte = data.type_alerte || null;
+  const typeLabel  = formatAlertType(typeAlerte);
+  const debit      = parseFloat(last.debit_eau).toFixed(1);
+  const vanne      = data.statut_vanne === 'OUVERTE' ? 'OPEN' : 'CLOSED';
+  const sA         = MAP_CONFIG.SENSORS.find(s => s.live);
+
+  mapState.lastLiveData = data;
+
+  // Mise à jour uniquement lors d'un changement d'état d'alerte (transition)
+  if (etatAlerte !== mapState.lastEtatAlerte) {
+    mapState.lastEtatAlerte = etatAlerte;
+
+    const mA = mapState.markers['center'];
+
+    if (mapState.circleA) {
+      mapState.map.removeLayer(mapState.circleA);
+      mapState.circleA = null;
+    }
+
+    if (etatAlerte === 'FERMEE') {
+      if (mA) mA.setIcon(mkIcon('#e34d5b', true));
+
+      mapState.isAcknowledged = false;
+      addActivity(`Leak confirmed (${typeLabel || 'BURST'})`, `Safety closure triggered · ${debit} L/min`, 'warning');
+
+      mapState.circleA = L.circle([sA.lat, sA.lng], {
+        radius:      MAP_CONFIG.ALERT_RADIUS,
+        color:       '#e34d5b',
+        fillColor:   '#e34d5b',
+        fillOpacity: 0.12,
+        weight:      2,
+        dashArray:   '6 5',
+      }).addTo(mapState.map);
+
+      mapState.selectedSensorId = 'center';
+      mapState.map.flyTo([sA.lat, sA.lng], MAP_CONFIG.ZOOM_ALERT, {
+        animate: true, duration: 1.5,
+      });
+      if (mA) mA.openPopup();
+    } else if (etatAlerte === 'ALERTE') {
+      if (mA) mA.setIcon(mkIcon('#f2a34a', true));
+
+      mapState.isAcknowledged = false;
+      addActivity(`Anomaly detected (${typeLabel || 'WARNING'})`, `Flow: ${debit} L/min · Monitoring active`, 'warning');
+
+      mapState.circleA = L.circle([sA.lat, sA.lng], {
+        radius:      MAP_CONFIG.ALERT_RADIUS,
+        color:       '#f2a34a',
+        fillColor:   '#f2a34a',
+        fillOpacity: 0.10,
+        weight:      2,
+        dashArray:   '4 4',
+      }).addTo(mapState.map);
+
+      mapState.selectedSensorId = 'center';
+      mapState.map.flyTo([sA.lat, sA.lng], MAP_CONFIG.ZOOM_ALERT, {
+        animate: true, duration: 1.5,
+      });
+      if (mA) mA.openPopup();
+    } else {
+      if (mA) mA.setIcon(mkIcon('#087eba', false));
+
+      mapState.isAcknowledged = false;
+      addActivity('Network normalized', 'Flow returned below the alert threshold', 'success');
+
+      if (mapState.selectedSensorId === 'center') {
+        mapState.map.flyTo(MAP_CONFIG.CENTER, MAP_CONFIG.ZOOM, {
+          animate: true, duration: 1.5,
+        });
+      }
+    }
+  }
+
+  // Mise à jour du contenu textuel du popup Secteur A SANS jamais appeler openPopup()
+  const mA = mapState.markers['center'];
+  if (mA) {
+    mA.setPopupContent(mkPopup(sA, etatAlerte, typeAlerte, debit, vanne));
+  }
+
+  // Mise à jour de la fiche latérale pour le capteur actuellement sélectionné
+  renderSensorDetailCard(mapState.selectedSensorId, data);
+}
+
+// ── Fonctions carte ──────────────────────────────────────────
+function centerLeak() {
+  selectSensor('center', true);
+}
+
+function focusLeak() {
+  const currentId = mapState.selectedSensorId || 'center';
+  const sensor    = MAP_CONFIG.SENSORS.find(s => s.id === currentId) || MAP_CONFIG.SENSORS[0];
+  mapState.map?.flyTo([sensor.lat, sensor.lng], MAP_CONFIG.ZOOM_ALERT, { duration: 1.2 });
+  const marker = mapState.markers[sensor.id];
+  if (marker) {
+    marker.openPopup();
+  }
+  document.querySelector('.network-map')?.classList.add('map-focused');
+  setTimeout(() => document.querySelector('.network-map')?.classList.remove('map-focused'), 900);
+}
+
+function acknowledgeLeak() {
+  mapState.isAcknowledged = true;
+  set('mapStatus', 'TRAITEMENT EN COURS');
+  const card = $('leakCard') || document.querySelector('.leak-card');
+  card?.classList.add('acknowledged');
+  addActivity('Fuite prise en charge', 'Intervention en cours sur Secteur A', '');
+}
+
+// ════════════════════════════════════════════════════════════
+//  JOURNAL D'ACTIVITÉ & HISTORIQUE DES MESURES
+// ════════════════════════════════════════════════════════════
+
+/**
+ * Ajoute une ligne en haut du journal d'activité (max 10 entrées).
+ * @param {string} title - Titre de l'action
+ * @param {string} detail - Description ou contexte
+ * @param {string} type - '' (défaut/bleu) | 'success' (vert) | 'warning' (orange)
+ */
+function addActivity(title, detail, type = '') {
+  const log = $('activityLog');
+  if (!log) return;
+
+  const li = document.createElement('li');
+  const spanClass = type ? ` class="${type}"` : '';
+  const time = new Date().toLocaleTimeString('en-US', {
+    hour: '2-digit', minute: '2-digit', second: '2-digit',
+  });
+
+  li.innerHTML = `<span${spanClass}>●</span><div><b>${title}</b><small>${detail} · ${time}</small></div>`;
+  log.prepend(li);
+
+  while (log.children.length > 10) {
+    log.removeChild(log.lastElementChild);
+  }
+}
+
+/**
+ * Met à jour le tableau d'historique des mesures.
+ * @param {Array} mesures - Liste des 30 dernières mesures MySQL
+ */
+function updateHistoryTable(mesures) {
+  if (!mesures) return;
+
+  set('measureCount', `${mesures.length} measurements`);
+
+  const tbody = $('historyBody');
+  if (!tbody) return;
+
+  if (mesures.length === 0) {
+    tbody.innerHTML = '<tr><td colspan="4">Waiting for measurements…</td></tr>';
+    return;
+  }
+
+  // Tri décroissant : les plus récentes en haut
+  const rows = [...mesures].reverse().map(m => {
+    const timeStr    = m.timestamp.includes(' ') ? m.timestamp.split(' ')[1] : m.timestamp;
+    const debit      = parseFloat(m.debit_eau).toFixed(1);
+    const debitEvite = parseFloat(m.debit_evite || 0);
+    const isAlert    = parseInt(m.alerte_fuite) === 1;
+
+    let badgeClass = 'status-badge normal';
+    let badgeText  = 'Normal';
+    let analyse    = 'Normal consumption';
+
+    if (debitEvite > 0) {
+      badgeClass = 'status-badge warning';
+      badgeText  = 'Valve closed';
+      analyse    = `Valve closed – ${debitEvite.toFixed(1)} L/min avoided`;
+    } else if (isAlert) {
+      badgeClass = 'status-badge anomaly';
+      badgeText  = 'Anomaly';
+      analyse    = 'Threshold exceeded';
+    }
+
+    return `<tr>
+      <td>${timeStr}</td>
+      <td><b>${debit}</b> L/min</td>
+      <td><span class="${badgeClass}">${badgeText}</span></td>
+      <td>${analyse}</td>
+    </tr>`;
+  }).join('');
+
+  tbody.innerHTML = rows;
+}
+
+// ════════════════════════════════════════════════════════════
+//  AUTHENTIFICATION & PRÉFÉRENCES TECHNICIEN
+// ════════════════════════════════════════════════════════════
+
+/** Vérifie si un technicien est connecté et synchronise l'UI */
+async function checkAuthSession() {
+  try {
+    const res = await fetch(CONFIG.API_AUTH, { cache: 'no-store' });
+    const data = await res.json();
+
+    if (data.success && data.authenticated && data.worker) {
+      applyWorkerUI(data.worker);
+    } else {
+      // Non connecté : initialisation avec profil par défaut démo
+      applyWorkerUI({
+        id: 0,
+        nom_complet: 'KIZUNA Technician (Guest)',
+        email: 'technicien@kizuna.tn',
+        telephone: '+21620123456',
+        telegram_chat_id: '123456789',
+        secteur_assigne: 'Secteur A — Zone ESPRIT / El Ghazala',
+        notify_sms: 1,
+        notify_telegram: 1,
+        isGuest: true,
+      });
+    }
+  } catch (err) {
+    console.warn('[Kizuna] Vérification session:', err);
+  }
+}
+
+/** Met à jour tous les éléments d'affichage du technicien */
+function applyWorkerUI(worker) {
+  authState.worker = worker;
+  const initials = getInitials(worker.nom_complet);
+
+  // Sidebar
+  set('sideUserName', worker.nom_complet || 'Technician');
+  set('sideUserRole', worker.secteur_assigne || 'Network supervision');
+  set('sideUserAvatar', initials);
+
+  // Topbar
+  set('topAvatar', initials);
+  const greeting = $('topGreeting');
+  if (greeting) {
+    const prenom = (worker.nom_complet || 'Technician').split(' ')[0];
+    const jp = window.KizunaI18n?.getLanguage() === 'jp';
+    greeting.innerHTML = jp
+      ? `こんにちは、${prenom}さん <span>✦</span>`
+      : `Hello, ${prenom} <span>✦</span>`;
+  }
+
+  // Section Paramètres
+  set('settingsAvatar', initials);
+  set('settingsWorkerName', worker.nom_complet || 'Technician');
+  set('settingsWorkerEmail', worker.email || '—');
+
+  const prefNom = $('prefNom');
+  if (prefNom) prefNom.value = worker.nom_complet || '';
+
+  const prefSecteur = $('prefSecteur');
+  if (prefSecteur) prefSecteur.value = worker.secteur_assigne || '';
+
+  const prefSms = $('prefNotifySms');
+  if (prefSms) prefSms.checked = parseInt(worker.notify_sms) === 1;
+
+  const prefTel = $('prefTel');
+  if (prefTel) prefTel.value = worker.telephone || '';
+
+  const prefTg = $('prefNotifyTelegram');
+  if (prefTg) prefTg.checked = parseInt(worker.notify_telegram) === 1;
+
+  const prefTgChat = $('prefTelegram');
+  if (prefTgChat) prefTgChat.value = worker.telegram_chat_id || '';
+
+  // Badge statut
+  const badge = $('authBadge');
+  if (badge) {
+    if (worker.isGuest) {
+      badge.innerHTML = '<i style="background:#f2a34a;"></i> GUEST';
+      badge.title = 'Click Switch Account to sign in';
+    } else {
+      badge.innerHTML = '<i style="background:#20a879;"></i> CONNECTED';
+      badge.title = 'Technician session active';
+    }
+  }
+
+  const switchBtn = $('switchAccountBtn');
+  if (switchBtn) {
+    switchBtn.textContent = worker.isGuest ? 'Sign In' : 'Switch Account';
+  }
+}
+
+/** Enregistre les préférences de coordonnées et canaux d'alerte */
+async function savePreferences() {
+  const btn = $('savePrefBtn');
+  const nom_complet      = $('prefNom')?.value.trim();
+  const secteur_assigne  = $('prefSecteur')?.value.trim();
+  const notify_sms       = $('prefNotifySms')?.checked ? 1 : 0;
+  const telephone        = $('prefTel')?.value.trim();
+  const notify_telegram  = $('prefNotifyTelegram')?.checked ? 1 : 0;
+  const telegram_chat_id = $('prefTelegram')?.value.trim();
+
+  if (notify_sms && !telephone) {
+    showSettingsFeedback('Please enter a phone number to enable SMS alerts.', 'error');
+    return;
+  }
+  if (notify_telegram && !telegram_chat_id) {
+    showSettingsFeedback('Please enter your Telegram Chat ID to enable Telegram alerts.', 'error');
+    return;
+  }
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Saving…';
+  }
+
+  try {
+    const res = await fetch(CONFIG.API_PREFS, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        nom_complet,
+        secteur_assigne,
+        notify_sms,
+        telephone,
+        notify_telegram,
+        telegram_chat_id,
+      }),
+    });
+    const data = await res.json();
+
+    if (!data.success) {
+      if (res.status === 401) {
+        showSettingsFeedback('Authentication required: redirecting to sign-in…', 'warning');
+        setTimeout(() => window.location.href = 'auth.html', 1500);
+        return;
+      }
+      throw new Error(data.error || 'Could not save preferences');
+    }
+
+    applyWorkerUI(data.worker);
+    showSettingsFeedback('✓ ' + data.message, 'success');
+    addActivity('Preferences saved', `Channels: ${notify_sms ? 'SMS ' : ''}${notify_telegram ? 'Telegram' : ''}`, 'success');
+
+  } catch (err) {
+    showSettingsFeedback('Error: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '💾 Save Preferences';
+    }
+  }
+}
+
+/** Déclenche une alerte de test immédiate (SMS sans URL + Telegram avec Maps) */
+async function testNotificationAlert() {
+  const btn = $('testNotifBtn');
+
+  if (btn) {
+    btn.disabled = true;
+    btn.textContent = 'Sending…';
+  }
+
+  try {
+    const res = await fetch(`${CONFIG.API_NOTIF}?action=test`, { method: 'POST' });
+    const data = await res.json();
+
+    if (!data.success) throw new Error(data.error || 'Test failed');
+
+    const d = data.data || {};
+    const smsCount = d.sms_envoyes || 0;
+    const tgCount  = d.telegram_envoyes || 0;
+
+    showSettingsFeedback(
+      `✓ Test alert sent: ${smsCount} SMS (no link) and ${tgCount} Telegram (direct Maps link)!`,
+      'success'
+    );
+    addActivity('Test alert triggered', `${smsCount} SMS · ${tgCount} Telegram`, 'success');
+
+  } catch (err) {
+    showSettingsFeedback('Test error: ' + err.message, 'error');
+  } finally {
+    if (btn) {
+      btn.disabled = false;
+      btn.textContent = '⚡ Tester l\'alerte';
+    }
+  }
+}
+
+/** Déconnexion de la session technicien */
+async function handleLogout() {
+  try {
+    await fetch(CONFIG.API_LOGOUT);
+    window.location.href = 'auth.html';
+  } catch (err) {
+    console.error('[Kizuna] Déconnexion:', err);
+    window.location.href = 'auth.html';
+  }
+}
+
+/** Affiche une notification temporaire dans la section Paramètres */
+function showSettingsFeedback(message, type = 'info') {
+  const fb = $('settingsFeedback');
+  if (!fb) return;
+
+  fb.style.display = 'block';
+  fb.textContent   = message;
+
+  if (type === 'success') {
+    fb.style.background = '#e8f8f2';
+    fb.style.border     = '1px solid #159b76';
+    fb.style.color      = '#159b76';
+  } else if (type === 'error') {
+    fb.style.background = '#fef0f1';
+    fb.style.border     = '1px solid #e34d5b';
+    fb.style.color      = '#e34d5b';
+  } else if (type === 'warning') {
+    fb.style.background = '#fff8ee';
+    fb.style.border     = '1px solid #f2a34a';
+    fb.style.color      = '#c97722';
+  } else {
+    fb.style.background = '#eef7fa';
+    fb.style.border     = '1px solid #168dbb';
+    fb.style.color      = '#168dbb';
+  }
+
+  setTimeout(() => {
+    fb.style.display = 'none';
+  }, 7000);
+}
+
+// ════════════════════════════════════════════════════════════
+//  CONTRÔLES (appels PHP réels)
+// ════════════════════════════════════════════════════════════
+
+/** Ouvre (true) ou ferme (false) la vanne via POST → controler_vanne.php */
+async function setValve(open) {
+  try {
+    const form = new FormData();
+    form.append('statut_vanne', open ? 'OUVERTE' : 'FERMEE');
+    const r = await fetch(CONFIG.API_CONTROLE, { method: 'POST', body: form });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+
+    applyValveUI(open);   // feedback immédiat
+    addActivity(
+      open ? 'Valve opened' : 'Valve closed',
+      open ? 'Manual command executed' : 'Flow interrupted by operator',
+      open ? 'success' : 'warning'
+    );
+    appState.lastValveStatus = open ? 'OUVERTE' : 'FERMEE';
+    fetchData();
+  } catch (e) {
+    console.error('[Kizuna] Vanne:', e);
+  }
+}
+
+/** Active / désactive le mode nuit via POST → controler_vanne.php */
+async function toggleNightMode() {
+  const isNow = $('nightModeBtn')?.classList.contains('night-active');
+  const nextMode = !isNow;
+  try {
+    const form = new FormData();
+    form.append('mode_nuit', nextMode ? 1 : 0);
+    const r = await fetch(CONFIG.API_CONTROLE, { method: 'POST', body: form });
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error);
+
+    addActivity(
+      nextMode ? 'Night mode enabled' : 'Night mode disabled',
+      nextMode ? 'Leak threshold lowered to 1.0 L/min' : 'Normal threshold restored (5.0 L/min)',
+      nextMode ? 'warning' : 'success'
+    );
+    fetchData();
+  } catch (e) {
+    console.error('[Kizuna] Mode nuit:', e);
+  }
+}
+
+/** Réinitialise la démo : ouvre la vanne (remplace resetSimulation). */
+function resetSimulation() { setValve(true); }
+
+// ════════════════════════════════════════════════════════════
+//  FETCH PRINCIPAL — toutes les 2 secondes
+// ════════════════════════════════════════════════════════════
+
+function updateLandingPreview(data) {
+  const flowEl  = $('landingFlow');
+  const savedEl = $('landingSaved');
+  const alertEl = $('landingAlerts');
+  if (!flowEl && !savedEl && !alertEl) return;
+
+  if (!data || !data.success) {
+    if (flowEl)  flowEl.textContent  = '—';
+    if (savedEl) savedEl.textContent = '—';
+    if (alertEl) alertEl.textContent = '—';
+    return;
+  }
+
+  const derniere = data.mesures && data.mesures.length ? data.mesures[data.mesures.length - 1] : null;
+  const flow = derniere ? parseFloat(derniere.debit_eau).toFixed(1) : '—';
+  const saved = (data.stats && data.stats.eau_economisee !== undefined) ? Number(data.stats.eau_economisee).toFixed(1) : '0.0';
+  const fermetures = (data.stats && data.stats.fermetures_aujourdhui !== undefined) ? data.stats.fermetures_aujourdhui : 0;
+
+  if (flowEl)  flowEl.textContent  = flow;
+  if (savedEl) savedEl.textContent = saved;
+  if (alertEl) alertEl.textContent = String(fermetures);
+}
+
+async function fetchData() {
+  try {
+    const r = await fetch(CONFIG.API_LIRE, { cache: 'no-store' });
+    if (!r.ok) throw new Error(`HTTP ${r.status}`);
+    const d = await r.json();
+    if (!d.success) throw new Error(d.error || 'Invalid response');
+
+    applyStats(d);
+    applyChart(d.mesures, d.seuil_actif);
+    applyMap(d);
+    updateHistoryTable(d.mesures);
+    updateLandingPreview(d);
+  } catch (e) {
+    console.error('[Kizuna] Fetch:', e);
+    updateLandingPreview(null);
+  }
+}
+
+// ════════════════════════════════════════════════════════════
+//  FONCTIONS GLOBALES (exposées pour les onclick HTML)
+// ════════════════════════════════════════════════════════════
+window.setValve             = setValve;
+window.toggleNightMode      = toggleNightMode;
+window.resetSimulation      = resetSimulation;
+window.centerLeak           = centerLeak;
+window.focusLeak            = focusLeak;
+window.acknowledgeLeak      = acknowledgeLeak;
+window.savePreferences      = savePreferences;
+window.testNotificationAlert= testNotificationAlert;
+window.handleLogout         = handleLogout;
+
+// ════════════════════════════════════════════════════════════
+//  DÉMARRAGE
+// ════════════════════════════════════════════════════════════
+
+document.addEventListener('DOMContentLoaded', () => {
+  updateDate();
+  const settingsPanel = document.getElementById('settings');
+  if (settingsPanel && 'IntersectionObserver' in window) {
+    const settingsObserver = new IntersectionObserver((entries, observer) => {
+      if (entries.some(entry => entry.isIntersecting)) {
+        settingsPanel.classList.add('is-visible');
+        observer.disconnect();
+      }
+    }, { threshold: 0.12 });
+    settingsObserver.observe(settingsPanel);
+  } else if (settingsPanel) {
+    settingsPanel.classList.add('is-visible');
+  }
+  injectMapCSS();
+  initChart();
+  initMap();
+  checkAuthSession();
+  fetchData();
+  appState.timer = setInterval(fetchData, CONFIG.REFRESH_MS);
+});

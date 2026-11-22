@@ -1,0 +1,38 @@
+# ============================================================
+#  Kizuna Water — .gitignore
+# ============================================================
+
+# Systèmes d'exploitation & Éditeurs
+.DS_Store
+Thumbs.db
+desktop.ini
+.vscode/
+.idea/
+*.sublime-workspace
+*.sublime-project
+
+# Logs & Fichiers temporaires
+*.log
+error_log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+
+# Environnements Python (pour la détection ML / IA)
+__pycache__/
+*.py[cod]
+*$py.class
+venv/
+.venv/
+env/
+ENV/
+build/
+dist/
+*.egg-info/
+
+# Configuration d'environnement locale
+.env
+.env.local
+
+# Fichiers de cache et temporaires Wokwi / Arduino
+.wokwi/
